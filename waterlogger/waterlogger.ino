@@ -8,8 +8,9 @@
  */
 
 
-#include <Fat16.h>	                         // the SD Card library
-#include <Fat16util.h>
+//#include <Fat16.h>	                         // the SD Card library
+//#include <Fat16util.h>
+#include <SD.h>                                  // the SD Card library
 #include <Wire.h>                                // I2C functions
 #include <Narcoleptic.h>                         // low-power sleep routine
 #include <EEPROM.h>                              // built-in EEPROM routines
@@ -69,9 +70,19 @@ int   LM35power = 2;                             // power to LM35 temp sensor
 int   LM35out = 3;                               // ADC channel for LM35 temperature sensor
 int   SDpower = 9;                               // power to microSD card circuit
 
+// On the Ethernet Shield, CS is pin 4. Note that even if it's not
+// used as the CS pin, the hardware CS pin (10 on most Arduino boards,
+// 53 on the Mega) must be left as an output or the SD library
+// functions will not work.
+const int chipSelect = 4;
+const int LED = 13;                              // Onboard LED
 
-SdCard card;                                     // initialize SDcard
-Fat16 file;                                      // initialize FAT
+//SdCard card;                                     // initialize SDcard
+//Fat16 file;                                      // initialize FAT
+
+File file;
+
+/*
 #define error(s) error_P(PSTR(s))                // store error strings in flash to save RAM
 void error_P(const char* str)                    // print out error messages
 {
@@ -83,11 +94,14 @@ void error_P(const char* str)                    // print out error messages
   }
   //  while(1);
 }
-
+*/
 
 // --------------------- setup ---------------------------------------------------
 void setup()
 {
+  pinMode(LED, OUTPUT);                          // On-board LED
+  digitalWrite(LED,HIGH);                        // Turn it on
+
   analogReference(DEFAULT);                      // ADC voltage reference
 
   pinMode(SDpower, OUTPUT);                      // power for SDcard
@@ -97,13 +111,30 @@ void setup()
   Serial.begin(9600);                            // enable screen output
   Wire.begin();                                  // enable i2c bus
 
-  for(i=1; i<4; i++)                             // blink microSD light at startup
-  {
-    digitalWrite(SDpower,HIGH);
-    delay(500);
-    digitalWrite(SDpower,LOW);
-    delay(500);
+  Serial.print("Initializing SD card...");
+  // make sure that the default chip select pin is set to
+  // output, even if you don't use it:
+  pinMode(10, OUTPUT);
+
+  digitalWrite(LED,LOW);
+  delay(200);
+ 
+  // see if the card is present and can be initialized:
+  if (!SD.begin(chipSelect)) {
+    Serial.println("Card failed, or not present");
+    // don't do anything more:
+    for(i=1; i<4; i++)                             // blink on-board LED 4 times to indicate SD failure
+    {
+      digitalWrite(LED,HIGH);
+      delay(200);
+      digitalWrite(LED,LOW);
+      delay(200);
+    }
   }
+  Serial.println("card initialized.");
+  digitalWrite(LED,HIGH);                      // blink on-board LED once to indicate OK
+  delay(200);
+  digitalWrite(LED,LOW);
 
   menu();                                        // goto menu
 }
@@ -332,6 +363,7 @@ void storeData()
   digitalWrite(SDpower,HIGH);                    // turn on power to SDcard
   delay(500);
 
+/*
   if (!card.init()) error("card.init");          // initialize the SD card
   if (!Fat16::init(&card)) error("Fat16::init");    // initialize a FAT16 volume
   // O_CREAT - create the file if it does not exist
@@ -339,7 +371,13 @@ void storeData()
   // O_WRITE - open for write only
   if (file.open(name, O_CREAT | O_APPEND | O_WRITE));
   file.writeError = false;                       // clear write error
+*/
 
+  file = SD.open(name, FILE_WRITE);
+
+  if (file) {
+  
+  
   file.print(IDnum);                             // Site identifier
   file.print(',');
   file.print(mnths);                             // date
@@ -371,8 +409,18 @@ void storeData()
 
   file.println();
 
+  file.close();
+  
+/*
   if (file.writeError) error("write data");
   if (!file.sync()) error("sync");               // don't sync too often - requires 2048 bytes of I/O to SD card
+*/
+
+  }
+  else {
+    Serial.println("error opening log file");
+  }
+  
   delay(100);
 
   digitalWrite(SDpower,LOW);                     // turn off SDcard
