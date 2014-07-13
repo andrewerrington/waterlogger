@@ -222,17 +222,17 @@ void ping()
 void readRTC()
 {
   Wire.beginTransmission(DS1337ctrl);            // send i2c control identifier
-  Wire.send(0x00);                               // set register to 0
+  Wire.write(0x00);                               // set register to 0
   Wire.endTransmission();
 
   Wire.requestFrom(DS1337ctrl, 7);               // read 7 bytes: secs,min,hr,dow,day,mth,yr
-  rtc_bcd[1] = Wire.receive();
-  rtc_bcd[2] = Wire.receive();
-  rtc_bcd[3] = Wire.receive();
-  rtc_bcd[4] = Wire.receive();
-  rtc_bcd[5] = Wire.receive();
-  rtc_bcd[6] = Wire.receive();
-  rtc_bcd[7] = Wire.receive();
+  rtc_bcd[1] = Wire.read();
+  rtc_bcd[2] = Wire.read();
+  rtc_bcd[3] = Wire.read();
+  rtc_bcd[4] = Wire.read();
+  rtc_bcd[5] = Wire.read();
+  rtc_bcd[6] = Wire.read();
+  rtc_bcd[7] = Wire.read();
   Wire.endTransmission();
 
   for(int i=1; i<=7; i++)                        // convert BCD to decimal
@@ -464,15 +464,15 @@ void menu()
     yrs = (yrs/10)*16 + yrs%10;
 
     Wire.beginTransmission(DS1337ctrl);          // set time, date
-    Wire.send(0);
+    Wire.write(0);
 
-    Wire.send(secs);
-    Wire.send(mins);
-    Wire.send(hrs);
-    Wire.send(dow);
-    Wire.send(days);
-    Wire.send(mnths);
-    Wire.send(yrs);
+    Wire.write(secs);
+    Wire.write(mins);
+    Wire.write(hrs);
+    Wire.write(dow);
+    Wire.write(days);
+    Wire.write(mnths);
+    Wire.write(yrs);
 
     Wire.endTransmission();
 
