@@ -1,8 +1,11 @@
 /*
  Water level datalogger
- Parallax Ping ultrasonic sensor
- DS1337 RTC
- Sparkfun microSD card/shield
+ Arduino Pro Mini clone (3V3 @ 16MHz)
+ HC-SR04 ultrasonic sensor
+ DS3231 RTC
+ LCSoft SD card holder
+ 5V SMD regulator with shutdown pin control
+ 
  Menu on restart to set RTC, board ID number
  Take measurements every 1 hour, store to SDcard
  */
@@ -27,7 +30,7 @@ byte  j;                                         // kPa array index
 int   mV;                                        // ADC value for LM35
 int   ADV;                                       // ADC value
 int   ADval;
-long  ADCmax = 1024;
+long  ADCmax = 1023;
 long  Vcc;                                       // supply/Aref voltage read with secret voltmeter
 
 int   Tair10;                                    // air temp * 10 for Vsound calculation
@@ -55,6 +58,8 @@ int   days;
 int   mnths;
 int   yrs;
 
+int  lastmin;  // One-minute logging for testing
+
 int   menuinput;                                 // user input for menu 
 long  timeout;                                   // seconds before menu times out
 int   indata;                                    // user-input data
@@ -64,18 +69,18 @@ byte  EEPROMbyte;                                // EEPROM data to store/read
 
 
 // ------- declare pins ------------------------------------------------------------
-int   Pingpower = 6;                             // power to Ping sensor
-int   echo = 5;                                  // Ping echo/trigger pin
-int   LM35power = 2;                             // power to LM35 temp sensor
-int   LM35out = 3;                               // ADC channel for LM35 temperature sensor
-int   SDpower = 9;                               // power to microSD card circuit
+int   extPower = 8;                              // power to HC-SR04 sensor and SD card
+int   trigPin = 7;                               // Output to trigger pin
+int   echoPin = 6;                               // Input from echo pin
+
+int   LM35power = 9;                             // power to LM35 temp sensor
+int   LM35out = A6;                               // ADC channel for LM35 temperature sensor
 
 // On the Ethernet Shield, CS is pin 4. Note that even if it's not
 // used as the CS pin, the hardware CS pin (10 on most Arduino boards,
 // 53 on the Mega) must be left as an output or the SD library
 // functions will not work.
-const int chipSelect = 4;
-const int LED = 13;                              // Onboard LED
+const int chipSelect = 10;
 
 //SdCard card;                                     // initialize SDcard
 //Fat16 file;                                      // initialize FAT
@@ -99,43 +104,36 @@ void error_P(const char* str)                    // print out error messages
 // --------------------- setup ---------------------------------------------------
 void setup()
 {
-  pinMode(LED, OUTPUT);                          // On-board LED
-  digitalWrite(LED,HIGH);                        // Turn it on
-
   analogReference(DEFAULT);                      // ADC voltage reference
 
-  pinMode(SDpower, OUTPUT);                      // power for SDcard
-  pinMode(Pingpower,OUTPUT);                     // power for Ping
+  pinMode(extPower, OUTPUT);                      // power for SDcard
+  digitalWrite(extPower, HIGH);                   // Turn on SD power so we can read the card
+
   pinMode(LM35power,OUTPUT);                     // power for LM35
+  digitalWrite(LM35power, LOW);                   // Turn it off for now
+
+  // Setup HC-SR04 module
+  pinMode(echoPin, INPUT);
+  pinMode(trigPin,OUTPUT);
+  digitalWrite(trigPin, LOW);
 
   Serial.begin(9600);                            // enable screen output
   Wire.begin();                                  // enable i2c bus
 
-  Serial.print("Initializing SD card...");
+  Serial.println("Initializing SD card...");
   // make sure that the default chip select pin is set to
   // output, even if you don't use it:
   pinMode(10, OUTPUT);
-
-  digitalWrite(LED,LOW);
-  delay(200);
  
   // see if the card is present and can be initialized:
   if (!SD.begin(chipSelect)) {
-    Serial.println("Card failed, or not present");
-    // don't do anything more:
-    for(i=1; i<4; i++)                             // blink on-board LED 4 times to indicate SD failure
-    {
-      digitalWrite(LED,HIGH);
-      delay(200);
-      digitalWrite(LED,LOW);
-      delay(200);
-    }
+    Serial.println("Card failed, or not present.");
   }
-  Serial.println("card initialized.");
-  digitalWrite(LED,HIGH);                      // blink on-board LED once to indicate OK
-  delay(200);
-  digitalWrite(LED,LOW);
-
+  else
+  {
+    Serial.println("Card initialized.");
+  }
+  
   menu();                                        // goto menu
 }
 
@@ -145,13 +143,15 @@ void loop()                                      // main program
 {  
   readRTC();                                     // read RTC
 
-    if(mins == 0)                                // 1 hr measurement interval
+//    if(mins == 0)                                // 1 hr measurement interval
+  if (mins != lastmin)                           // 1 minute logging interval for testing
   {
     readLM35();                                  // read LM35 air temperature
     ping();                                      // read Ping ultrasonic sensor
 
     printData();                                 // output data to screen
     storeData();                                 // store data to SD card
+    lastmin=mins;  // For testing
   }
   sleepytime();                                  // go to low-power sleep routine
 }
@@ -169,9 +169,6 @@ void readLM35()
   
   readVcc();                                     // read ADC supply/Aref voltage
 
-  digitalWrite(Pingpower, HIGH);                 // turn on power to Ping sensor
-  delay(50);
-
   ADV = analogRead(LM35out);                     // dummy reading to settle ADC channel
   delay(10);      
 
@@ -187,58 +184,55 @@ void readLM35()
   
   mV = ADval * Vcc / ADCmax;                     // calculate mV
 
-  Tair10 = mV / 10;                              // air temp * 10 (deg C) for Vsound calculation
+  Tair10 = mV; // / 10;                              // air temp * 10 (deg C) for Vsound calculation
 
-  long TdegF = (long(mV) * 18) / 10 + 3200;      // convert to deg F
+  //long TdegF = (long(mV) * 18) / 10 + 3200;      // convert to deg F
 
-  TLM35whole = TdegF / 100;                      // temp in deg F, whole part
-  TLM35dec = TdegF % 100;                        //                decimal part
+  //TLM35whole = TdegF / 100;                      // temp in deg F, whole part
+  //TLM35dec = TdegF % 100;                        //                decimal part
+
+  TLM35whole = Tair10 / 100;                      // temp in deg C, whole part
+  TLM35dec = Tair10 % 100;                        //                decimal part
+
 }
 //====================================================================================
 
 
 
-// ------------------------ routine to read Ping sensor --------------------------
+// ------------------------ routine to read HC-SR04 sensor --------------------------
 void ping()
 {
-  digitalWrite(Pingpower,HIGH);                  // turn on power to sensor
+  digitalWrite(extPower,HIGH);                  // turn on power to sensor
   delay(500);
-                                                 // take dummy reading
-  pinMode(echo, OUTPUT);                         // output mode to trigger
-  digitalWrite(echo, LOW);                       // set trigger pulse low
-  delayMicroseconds(5);
-  digitalWrite(echo, HIGH);                      // trigger pulse
-  delayMicroseconds(5);
-  digitalWrite(echo, LOW);                       // return low
 
-  pinMode(echo, INPUT);                          // input mode to read eachop
-  duration = pulseIn(echo, HIGH);                // measure time of echo pulse
+  // take dummy reading
+  digitalWrite(trigPin, HIGH);                   // Generate trigger pulse of 10us width
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+
+  duration = pulseIn(echoPin, HIGH);             // measure time of echo pulse
   delay(200);
 
   pulsetotal = 0;                                // initialize totalizer
   for(i=1; i<=10; i++)                           // take 10 samples
   {
-    pinMode(echo, OUTPUT);                       // output mode to trigger
-    digitalWrite(echo, LOW);                     // set trigger pulse low
-    delayMicroseconds(2);
-    digitalWrite(echo, HIGH);                    // trigger pulse
-    delayMicroseconds(5);
-    digitalWrite(echo, LOW);                     // return low
+    digitalWrite(trigPin, HIGH);                 // Generate trigger pulse of 10us width
+    delayMicroseconds(10);
+    digitalWrite(trigPin, LOW);
 
-    pinMode(echo, INPUT);                        // input mode to read eachop
-    duration = pulseIn(echo, HIGH);              // measure time of echo pulse
+    duration = pulseIn(echoPin, HIGH);              // measure time of echo pulse
 
     pulsetotal = pulsetotal + duration;          // totalize
 
     delay(200);
   }  
-  digitalWrite(Pingpower,LOW);                   // turn off ultrasonic sensor
+  digitalWrite(extPower,LOW);                   // turn off ultrasonic sensor
 
   distance = pulsetotal * 10 / 148;              // calculate uncorrected distance from time of pulse, inches*100
   dist_whole = distance / 100;                   // distance, whole inches
   dist_dec = distance % 100;                     //           decimal part  
   
-  Vsound = 331 + 6 * Tair10 / 100;               // calculate Vsound = 331m/s + 0.6m/sC*Tair
+  Vsound = 331 + 6 * (Tair10/10) / 100;               // calculate Vsound = 331m/s + 0.6m/sC*Tair
 
   distTcorr = Vsound * 3936 / 100;               // corrected distance, converting m to in
   distTcorr = distTcorr * pulsetotal / 200000;   // calculate distance, in * 100
@@ -360,7 +354,7 @@ void printData()
 // ------- store data to SDcard ---------------------------------------
 void storeData()
 {
-  digitalWrite(SDpower,HIGH);                    // turn on power to SDcard
+  digitalWrite(extPower,HIGH);                    // turn on power to SDcard
   delay(500);
 
 /*
@@ -423,7 +417,7 @@ void storeData()
   
   delay(100);
 
-  digitalWrite(SDpower,LOW);                     // turn off SDcard
+  digitalWrite(extPower,LOW);                     // turn off SDcard
 }
 //==========================================================================
 
@@ -467,6 +461,8 @@ void menu()
   Serial.print(':');
   if(secs < 10) Serial.print('0');
   Serial.println(secs);
+
+  lastmin = mins;
 
   Serial.println();                              // menu options
   Serial.println("1. Set clock");
@@ -594,7 +590,4 @@ void getinput()
   delay(5);
 }
 //===================================================================
-
-
-
 
